@@ -27,17 +27,17 @@ fi
 # Regenerate the project from project.yml when XcodeGen is around; otherwise
 # fall back to the committed ClaudeUsage.xcodeproj.
 if command -v xcodegen >/dev/null 2>&1; then
-  say "Generating Xcode project…"
+  say "Generating Xcode project..."
   xcodegen generate --quiet
 elif [[ ! -d ClaudeUsage.xcodeproj ]]; then
   command -v brew >/dev/null 2>&1 || die "XcodeGen is needed: https://github.com/yonaskolb/XcodeGen"
-  say "Installing XcodeGen…"
+  say "Installing XcodeGen..."
   brew install xcodegen
   xcodegen generate --quiet
 fi
 
 mkdir -p build
-say "Building (Release)…"
+say "Building (Release)..."
 if ! xcodebuild -project ClaudeUsage.xcodeproj -target ClaudeUsage -configuration Release \
      SYMROOT="$PWD/build" CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= \
      build >build/xcodebuild.log 2>&1; then

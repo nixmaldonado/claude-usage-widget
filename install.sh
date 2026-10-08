@@ -20,7 +20,7 @@ trap 'rm -rf "$tmp"' EXIT
 source="${1:-}"
 if [[ -z "$source" ]]; then
   source="$tmp/ClaudeUsage.zip"
-  say "Downloading the latest release…"
+  say "Downloading the latest release..."
   curl -fL --progress-bar "https://github.com/$repo/releases/latest/download/ClaudeUsage.zip" -o "$source" \
     || die "Download failed. Get ClaudeUsage.zip from https://github.com/$repo/releases and run: bash install.sh ~/Downloads/ClaudeUsage.zip"
 fi
@@ -45,7 +45,7 @@ dest_dir="/Applications"
 mkdir -p "$dest_dir"
 dest="$dest_dir/ClaudeUsage.app"
 
-say "Installing to $dest…"
+say "Installing to ${dest}..."
 pkill -x ClaudeUsage 2>/dev/null || true
 sleep 0.5
 rm -rf "$dest"
@@ -56,7 +56,7 @@ xattr -dr com.apple.quarantine "$dest" 2>/dev/null || true
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f -R "$dest" >/dev/null 2>&1 || true
 pluginkit -a "$dest/Contents/PlugIns/ClaudeUsageWidget.appex" >/dev/null 2>&1 || true
 
-say "Checking your Claude Code login…"
+say "Checking your Claude Code login..."
 if "$dest/Contents/MacOS/ClaudeUsage" --once >"$tmp/first.json" 2>"$tmp/first.err"; then
   i=0
   while label=$(plutil -extract "limits.$i.label" raw -o - "$tmp/first.json" 2>/dev/null); do
@@ -69,11 +69,11 @@ else
   echo "    The widget will say so until it can fetch. See the README's Troubleshooting section."
 fi
 
-say "Launching…"
+say "Launching..."
 open "$dest"
 
 cat <<'EOF'
 
 Done. Claude Usage runs in the background (menu bar) and starts at login.
-Add the widget: right-click the desktop → Edit Widgets… → search "Claude Usage".
+Add the widget: right-click the desktop → Edit Widgets... → search "Claude Usage".
 EOF
