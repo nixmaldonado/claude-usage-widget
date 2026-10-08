@@ -37,7 +37,7 @@ jobs:
           set -o pipefail
           xcodebuild -project ClaudeUsage.xcodeproj -target ClaudeUsage -configuration Release \
             SYMROOT="$PWD/build" CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= \
-            build | grep -E "warning:|error:|BUILD (SUCCEEDED|FAILED)" || true
+            build 2>&1 | tee build.log | grep -E "warning:|error:|BUILD (SUCCEEDED|FAILED)" || true
           test -d "$APP"
 
       - name: Check bundle, signature and entitlements
@@ -50,7 +50,9 @@ jobs:
           plutil -p "$appex/Contents/Info.plist"
 
       - name: Parser tests
-        run: bash tests/run.sh "$APP/Contents/MacOS/ClaudeUsage"
+        run: |
+          set -o pipefail
+          bash tests/run.sh "$APP/Contents/MacOS/ClaudeUsage" | tee tests.log
 
       - name: Smoke test (CI has no Claude Code login, so this should report signedOut)
         timeout-minutes: 2
@@ -69,6 +71,25 @@ jobs:
           name: ClaudeUsage
           path: ClaudeUsage.zip
           if-no-files-found: error
+
+      # Keeps the newest main build (and its logs, even on failure) on an
+      # orphan `builds` branch, fetchable with plain git.
+      - name: Publish to the builds branch
+        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p out
+          for f in ClaudeUsage.zip build.log tests.log once.json; do if [[ -f "$f" ]]; then cp "$f" out/; fi; done
+          cd out
+          printf 'commit %s\nrun %s/%s/actions/runs/%s\nstatus %s\n' "$GITHUB_SHA" \
+            "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" "${{ job.status }}" > BUILD_INFO.txt
+          git init -q -b builds
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Build of ${GITHUB_SHA::7} (${{ job.status }})"
+          git push -fq "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" builds
 
       - name: Publish release
         if: startsWith(github.ref, 'refs/tags/v')
