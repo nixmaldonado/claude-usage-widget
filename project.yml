@@ -1,0 +1,81 @@
+# XcodeGen spec — the source of truth for ClaudeUsage.xcodeproj.
+# Regenerate with `xcodegen generate` (build.sh does this for you).
+name: ClaudeUsage
+
+options:
+  bundleIdPrefix: com.nixmaldonado
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.0"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    # Sign to Run Locally (ad-hoc). Good enough for building on your own Mac;
+    # distributing a prebuilt .app would need Developer ID + notarization.
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: "-"
+    DEVELOPMENT_TEAM: ""
+    ENABLE_HARDENED_RUNTIME: NO
+    DEAD_CODE_STRIPPING: YES
+
+targets:
+  ClaudeUsage:
+    type: application
+    platform: macOS
+    sources:
+      - App
+      - Shared
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: Claude Usage
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSApplicationCategoryType: public.app-category.developer-tools
+        LSUIElement: true
+        CFBundleURLTypes:
+          - CFBundleURLName: com.nixmaldonado.ClaudeUsage
+            CFBundleURLSchemes: [claudeusage]
+        NSHumanReadableCopyright: MIT License
+    entitlements:
+      path: App/ClaudeUsage.entitlements
+      properties: {}
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.nixmaldonado.ClaudeUsage
+        PRODUCT_NAME: ClaudeUsage
+    dependencies:
+      - target: ClaudeUsageWidget
+        embed: true
+
+  ClaudeUsageWidget:
+    type: app-extension
+    platform: macOS
+    sources:
+      - Widget
+      - Shared
+    info:
+      path: Widget/Info.plist
+      properties:
+        CFBundleDisplayName: Claude Usage
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    entitlements:
+      path: Widget/ClaudeUsageWidget.entitlements
+      properties:
+        # WidgetKit requires the extension to be sandboxed. The one exception
+        # lets it read the snapshot the menu-bar app writes — nothing else.
+        com.apple.security.app-sandbox: true
+        com.apple.security.temporary-exception.files.home-relative-path.read-only:
+          - /Library/Application Support/ClaudeUsageWidget/
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.nixmaldonado.ClaudeUsage.Widget
+        PRODUCT_NAME: ClaudeUsageWidget
+        SKIP_INSTALL: YES
