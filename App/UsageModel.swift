@@ -11,11 +11,19 @@ final class UsageModel: ObservableObject {
     @Published private(set) var isRefreshing = false
     @Published private(set) var openAtLogin = SMAppService.mainApp.status == .enabled
 
-    /// How often to poll. The endpoint rate-limits aggressive clients; 2 min is gentle.
-    static let interval: TimeInterval = 120
+    /// How often to poll. Usage moves slowly enough that 5 minutes is plenty,
+    /// and it keeps the load on an unofficial endpoint low.
+    static let interval: TimeInterval = 300
+    /// Minimum spacing for manual refreshes (menu, widget click, claudeusage://).
+    static let manualSpacing: TimeInterval = 30
 
     private var timer: Timer?
-    private var notBefore = Date.distantPast
+    /// Set from a 429: nothing fetches before this, manual refreshes included.
+    private var rateLimitedUntil = Date.distantPast
+    /// Set when the login is missing or rejected: automatic polls pause until
+    /// then, but a manual refresh (after you run `claude`) still goes through.
+    private var autoPausedUntil = Date.distantPast
+    private var lastAttempt = Date.distantPast
     private var lastSignature: String?
     private var lastWidgetReload = Date.distantPast
 
@@ -37,10 +45,18 @@ final class UsageModel: ObservableObject {
         }
     }
 
-    /// `userInitiated` skips the rate-limit backoff (menu "Refresh Now", widget tap).
+    /// `userInitiated`: menu "Refresh Now" or a widget click. It skips the
+    /// signed-out pause but never the rate-limit backoff, and is spaced 30 s apart
+    /// so nothing (including a claudeusage:// link) can hammer the endpoint.
     func refresh(userInitiated: Bool = false) {
-        guard !isRefreshing else { return }
-        if !userInitiated, Date() < notBefore { return }
+        let now = Date()
+        guard !isRefreshing, now >= rateLimitedUntil else { return }
+        if userInitiated {
+            guard now.timeIntervalSince(lastAttempt) >= Self.manualSpacing else { return }
+        } else if now < autoPausedUntil {
+            return
+        }
+        lastAttempt = now
         isRefreshing = true
         let previous = snapshot
         Task {
@@ -53,10 +69,13 @@ final class UsageModel: ObservableObject {
         isRefreshing = false
         snapshot = snap
 
-        if case .rateLimited(let retryAfter) = error {
-            notBefore = Date().addingTimeInterval(max(retryAfter ?? 0, 300))
-        } else {
-            notBefore = .distantPast
+        switch error {
+        case .rateLimited(let retryAfter)?:
+            rateLimitedUntil = Date().addingTimeInterval(min(max(retryAfter ?? 0, 600), 3600))
+        case .unauthorized?, .notSignedIn?:
+            autoPausedUntil = Date().addingTimeInterval(15 * 60)
+        default:
+            autoPausedUntil = .distantPast
         }
 
         do {

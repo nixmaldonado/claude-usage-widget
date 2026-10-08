@@ -40,6 +40,7 @@ mkdir -p build
 say "Building (Release)..."
 if ! xcodebuild -project ClaudeUsage.xcodeproj -target ClaudeUsage -configuration Release \
      SYMROOT="$PWD/build" CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= \
+     ENABLE_HARDENED_RUNTIME=YES CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
      build >build/xcodebuild.log 2>&1; then
   grep -E "error:|license" build/xcodebuild.log | head -20 || tail -30 build/xcodebuild.log
   die "Build failed. Full log: build/xcodebuild.log"

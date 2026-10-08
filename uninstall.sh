@@ -5,7 +5,7 @@ set -euo pipefail
 for app in /Applications/ClaudeUsage.app "$HOME/Applications/ClaudeUsage.app"; do
   if [[ -d "$app" ]]; then
     # Unregister the login item while the binary still exists.
-    osascript -e 'tell application "System Events" to delete (every login item whose name is "ClaudeUsage")' >/dev/null 2>&1 || true
+    "$app/Contents/MacOS/ClaudeUsage" --unregister-login-item 2>/dev/null || true
     pkill -x ClaudeUsage 2>/dev/null || true
     pluginkit -r "$app/Contents/PlugIns/ClaudeUsageWidget.appex" >/dev/null 2>&1 || true
     rm -rf "$app"

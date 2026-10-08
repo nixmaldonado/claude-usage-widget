@@ -7,8 +7,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Read-only by default. Only the two small publish jobs below can write, and
+# they never run repo code or third-party tools.
 permissions:
-  contents: write
+  contents: read
 
 defaults:
   run:
@@ -22,7 +24,9 @@ jobs:
       HOMEBREW_NO_AUTO_UPDATE: "1"
       APP: build/Release/ClaudeUsage.app
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Toolchain
         run: |
@@ -37,15 +41,23 @@ jobs:
           set -o pipefail
           xcodebuild -project ClaudeUsage.xcodeproj -target ClaudeUsage -configuration Release \
             SYMROOT="$PWD/build" CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= \
+            ENABLE_HARDENED_RUNTIME=YES CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
             build 2>&1 | tee build.log | grep -E "warning:|error:|BUILD (SUCCEEDED|FAILED)" || true
           test -d "$APP"
 
       - name: Check bundle, signature and entitlements
         run: |
-          codesign --verify --deep --strict --verbose=2 "$APP"
           appex="$APP/Contents/PlugIns/ClaudeUsageWidget.appex"
           test -d "$appex"
-          codesign -d --entitlements - --xml "$appex" | plutil -p -
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          for bin in "$APP" "$appex"; do
+            echo "== $bin"
+            codesign -dv "$bin" 2>&1 | grep -E "^(Identifier|CodeDirectory|Signature)"
+            codesign -dv "$bin" 2>&1 | grep -q "flags=.*runtime" || { echo "hardened runtime missing"; exit 1; }
+            ents="$(codesign -d --entitlements - --xml "$bin" 2>/dev/null || true)"
+            echo "$ents" | plutil -p - 2>/dev/null || echo "(no entitlements)"
+            if echo "$ents" | grep -q "get-task-allow"; then echo "get-task-allow must not ship"; exit 1; fi
+          done
           codesign -d --entitlements - --xml "$appex" | grep -q "com.apple.security.app-sandbox"
           plutil -p "$appex/Contents/Info.plist"
 
@@ -64,35 +76,84 @@ jobs:
           test "$code" -eq 1 && grep -q '"signedOut"' once.json
 
       - name: Package
-        run: ditto -c -k --keepParent "$APP" ClaudeUsage.zip
+        run: |
+          ditto -c -k --keepParent "$APP" ClaudeUsage.zip
+          shasum -a 256 ClaudeUsage.zip | tee ClaudeUsage.zip.sha256
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
         with:
-          name: ClaudeUsage
-          path: ClaudeUsage.zip
-          if-no-files-found: error
+          name: build
+          path: |
+            ClaudeUsage.zip
+            ClaudeUsage.zip.sha256
+            build.log
+            tests.log
+            once.json
+          if-no-files-found: warn
 
-      # Keeps the newest main build (and its logs, even on failure) on an
-      # orphan `builds` branch, fetchable with plain git.
-      - name: Publish to the builds branch
-        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+  # Keeps the newest main build (and its logs, even on failure) on an orphan
+  # `builds` branch, fetchable with plain git.
+  builds-branch:
+    needs: build
+    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        continue-on-error: true
+        with:
+          name: build
+          path: out
+      - name: Push to builds
         env:
           GH_TOKEN: ${{ github.token }}
+          BUILD_RESULT: ${{ needs.build.result }}
         run: |
-          mkdir -p out
-          for f in ClaudeUsage.zip build.log tests.log once.json; do if [[ -f "$f" ]]; then cp "$f" out/; fi; done
-          cd out
-          printf 'commit %s\nrun %s/%s/actions/runs/%s\nstatus %s\n' "$GITHUB_SHA" \
-            "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" "${{ job.status }}" > BUILD_INFO.txt
+          mkdir -p out && cd out
+          printf 'commit %s\nrun %s/%s/actions/runs/%s\nresult %s\n' "$GITHUB_SHA" \
+            "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" "$BUILD_RESULT" > BUILD_INFO.txt
           git init -q -b builds
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -q -m "Build of ${GITHUB_SHA::7} (${{ job.status }})"
-          git push -fq "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" builds
+          git commit -q -m "Build of ${GITHUB_SHA::7} ($BUILD_RESULT)"
+          auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" \
+            push -fq "https://github.com/${GITHUB_REPOSITORY}.git" HEAD:builds
 
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: build
+          path: dist
+      - name: Verify checksum
+        run: cd dist && sha256sum -c ClaudeUsage.zip.sha256
+      - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-path: dist/ClaudeUsage.zip
+      - name: Pin install.sh to this release and its checksum
+        run: |
+          sha="$(cut -d' ' -f1 dist/ClaudeUsage.zip.sha256)"
+          sed -e "s/^release_tag=.*/release_tag=\"$GITHUB_REF_NAME\"/" \
+              -e "s/^expected_sha256=.*/expected_sha256=\"$sha\"/" install.sh > dist/install.sh
+          grep -E '^(release_tag|expected_sha256)=' dist/install.sh
       - name: Publish release
-        if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" ClaudeUsage.zip --title "$GITHUB_REF_NAME" --generate-notes
+        run: |
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" --generate-notes \
+            dist/ClaudeUsage.zip dist/ClaudeUsage.zip.sha256 dist/install.sh

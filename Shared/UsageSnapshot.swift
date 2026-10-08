@@ -69,8 +69,10 @@ extension UsageLimit {
     /// "6:40 PM" when the reset is within a day, otherwise "Sat 10:00 AM".
     /// Follows the system 12/24-hour setting.
     func resetText(relativeTo date: Date) -> String? {
-        guard let resetsAt else { return nil }
+        guard var resetsAt else { return nil }
         if resetsAt <= date { return "reset" }
+        // The API reports some windows as hh:59:59; show them as the next minute.
+        resetsAt = Date(timeIntervalSinceReferenceDate: (resetsAt.timeIntervalSinceReferenceDate / 60).rounded() * 60)
         if resetsAt.timeIntervalSince(date) < 20 * 3600 {
             return resetsAt.formatted(.dateTime.hour().minute())
         }

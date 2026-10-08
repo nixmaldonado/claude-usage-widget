@@ -1,4 +1,5 @@
 import AppKit
+import ServiceManagement
 import SwiftUI
 import WidgetKit
 
@@ -9,7 +10,11 @@ import WidgetKit
 enum Launcher {
     static func main() {
         let args = CommandLine.arguments
-        if let i = args.firstIndex(of: "--parse"), i + 1 < args.count {
+        if args.contains("--unregister-login-item") {
+            // Used by uninstall.sh so no stale background item is left behind.
+            try? SMAppService.mainApp.unregister()
+            exit(0)
+        } else if let i = args.firstIndex(of: "--parse"), i + 1 < args.count {
             exit(CommandLineTools.parseFile(args[i + 1]))
         } else if args.contains("--raw") {
             exit(CommandLineTools.printRaw())
@@ -119,8 +124,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return false
     }
 
-    /// claudeusage://refresh — sent when the widget is clicked.
+    /// claudeusage://refresh — sent when the widget is clicked. Any app or web
+    /// page can open this URL, so it only ever triggers a throttled refresh.
     func application(_ application: NSApplication, open urls: [URL]) {
+        guard urls.contains(where: { $0.scheme == "claudeusage" && $0.host == "refresh" }) else { return }
         model.refresh(userInitiated: true)
     }
 }

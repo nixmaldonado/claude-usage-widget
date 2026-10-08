@@ -15,7 +15,7 @@ enum FetchError: LocalizedError {
     case notSignedIn
     case unauthorized
     case rateLimited(retryAfter: TimeInterval?)
-    case http(Int, String)
+    case http(Int)
     case badResponse(String)
 
     var errorDescription: String? {
@@ -26,8 +26,8 @@ enum FetchError: LocalizedError {
             return "Claude Code login expired. Run `claude` once to refresh it."
         case .rateLimited:
             return "Usage endpoint is rate limiting; backing off."
-        case .http(let code, let body):
-            return "HTTP \(code): \(body)"
+        case .http(let code):
+            return "Usage endpoint returned HTTP \(code)."
         case .badResponse(let why):
             return "Unexpected response: \(why)"
         }
@@ -97,19 +97,35 @@ enum CredentialStore {
 enum UsageAPI {
     static let url = URL(string: "https://api.anthropic.com/api/oauth/usage")!
 
+    /// Identifies this app honestly instead of posing as Claude Code.
+    static let userAgent: String = {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
+        return "ClaudeUsageWidget/\(version) (+https://github.com/nixmaldonado/claude-usage-widget)"
+    }()
+
+    /// Never follow redirects, so the bearer token can't be re-sent to another host.
+    private final class NoRedirects: NSObject, URLSessionTaskDelegate {
+        func urlSession(_ session: URLSession, task: URLSessionTask,
+                        willPerformHTTPRedirection response: HTTPURLResponse,
+                        newRequest request: URLRequest) async -> URLRequest? {
+            nil
+        }
+    }
+
     private static let session: URLSession = {
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 15
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
-        return URLSession(configuration: config)
+        config.httpCookieStorage = nil
+        config.urlCache = nil
+        return URLSession(configuration: config, delegate: NoRedirects(), delegateQueue: nil)
     }()
 
     static func fetch(token: String) async throws -> Data {
         var request = URLRequest(url: url)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
-        // The endpoint rate-limits requests that don't look like Claude Code.
-        request.setValue("claude-code/2.1.183", forHTTPHeaderField: "User-Agent")
+        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
         let (data, response) = try await session.data(for: request)
@@ -123,8 +139,8 @@ enum UsageAPI {
             let retry = http.value(forHTTPHeaderField: "Retry-After").flatMap { Double($0) }
             throw FetchError.rateLimited(retryAfter: retry)
         default:
-            let body = String(decoding: data.prefix(200), as: UTF8.self)
-            throw FetchError.http(http.statusCode, body)
+            // Status only: response bodies never reach logs, disk or the widget.
+            throw FetchError.http(http.statusCode)
         }
     }
 }

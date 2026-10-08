@@ -5,7 +5,7 @@ Your Claude plan limits on the desktop, next to the clock and calendar: the
 like Fable**, each with its reset time. The same numbers as
 [claude.ai → Settings → Usage](https://claude.ai/settings/usage), without opening it.
 
-<!-- Add a screenshot: docs/widget.png -->
+<img src="docs/widget.png" alt="Claude Usage widget on the macOS desktop" width="390">
 
 - **Small and medium** widget sizes, in light and dark mode
 - A **pace marker** on each bar shows where an even burn rate would be right now
@@ -23,12 +23,15 @@ like Fable**, each with its reset time. The same numbers as
 **Prebuilt (no Xcode needed):**
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/nixmaldonado/claude-usage-widget/main/install.sh | bash
+curl -fsSL https://github.com/nixmaldonado/claude-usage-widget/releases/latest/download/install.sh | bash
 ```
 
-This downloads `ClaudeUsage.zip` from the [latest release](https://github.com/nixmaldonado/claude-usage-widget/releases/latest),
-built by [GitHub Actions](.github/workflows/build.yml) from this repo. Prefer to look first?
-Download the zip and [`install.sh`](install.sh), read it, and run `bash install.sh ~/Downloads/ClaudeUsage.zip`.
+That runs the `install.sh` attached to the [latest release](https://github.com/nixmaldonado/claude-usage-widget/releases/latest).
+It downloads `ClaudeUsage.zip` from the same release and refuses to install it unless
+its SHA-256 matches the one baked into the script. Both are built by
+[GitHub Actions](.github/workflows/build.yml) from this repo, with a
+[build provenance attestation](#verifying-a-download). Prefer to read it first?
+Download both files from the release page and run `bash install.sh ~/Downloads/ClaudeUsage.zip`.
 
 **From source** (needs Xcode 15+, free on the Mac App Store):
 
@@ -43,15 +46,15 @@ your usage, and launches it. Then:
 
 **Right-click the desktop → Edit Widgets… → search "Claude Usage"** and drag it out.
 
-The app runs in the background, starts at login, and refreshes every 2 minutes.
-Clicking the widget refreshes immediately.
+The app runs in the background, starts at login, and refreshes every 5 minutes.
+Clicking the widget refreshes right away.
 
 ## How it works
 
 ```
 Claude Code login (Keychain)          api.anthropic.com/api/oauth/usage
             │  read-only                         ▲
-            ▼                                    │ every 2 min
+            ▼                                    │ every 5 min
    ClaudeUsage.app  (menu-bar agent) ────────────┘
             │  writes
             ▼
@@ -70,14 +73,46 @@ Claude Code login (Keychain)          api.anthropic.com/api/oauth/usage
   requires widgets to be sandboxed, so the extension has a read-only exception for
   that one folder and no network access.
 
+## Security and privacy
+
+- **Your login stays put.** The token is read with `find-generic-password` and held in
+  memory only for the request. It is never logged, printed, written to disk, passed on a
+  command line, or sent anywhere except `api.anthropic.com` over HTTPS (redirects are
+  refused, so it can't be forwarded to another host).
+- **Nothing else leaves your Mac.** No analytics, no other servers. The snapshot file
+  holds percentages and reset times only.
+- **The widget can't do much.** It's sandboxed with no network access and read-only
+  access to one folder.
+- **The app is hardened.** Hardened runtime is on and debugging entitlements are off, so
+  other processes can't attach to it or inject code.
+- **Clicking `claudeusage://refresh` links is harmless.** Any app or web page can open
+  that URL, but it only triggers a refresh, at most once every 30 seconds.
+- **It identifies itself honestly.** Requests carry a `ClaudeUsageWidget/<version>`
+  User-Agent rather than pretending to be Claude Code.
+
+### Verifying a download
+
+Every release zip has a SHA-256 file and a signed
+[build provenance attestation](https://docs.github.com/en/actions/security-for-github-actions/using-artifact-attestations)
+showing which workflow run in this repo built it:
+
+```sh
+shasum -a 256 ClaudeUsage.zip          # compare with ClaudeUsage.zip.sha256
+gh attestation verify ClaudeUsage.zip -R nixmaldonado/claude-usage-widget
+```
+
 ## Caveats
 
-- **The usage endpoint is undocumented.** Anthropic can change it at any time. The
+- **This is unofficial.** It uses your Claude Code login against an endpoint Anthropic
+  hasn't documented for third-party use. Read-only polling every few minutes is light,
+  but Anthropic could change the endpoint or restrict this kind of access, and you're
+  using it at your own discretion.
+- **The response format can change.** The
   parser is lenient (it understands both the `limits[]` array and the older
   `five_hour` / `seven_day` fields), but expect the occasional fix.
 - **Your Claude Code login has to be current.** If you haven't used Claude Code for a
   while, its token may expire and the widget shows *"run `claude` to sign in"*. Run
-  `claude` once and it recovers on the next refresh.
+  `claude` once, then click the widget.
 - **Signed ad-hoc, not notarized.** Notarization needs a paid Apple Developer ID, so
   `install.sh` clears the download's quarantine flag for you. Opening the zip by
   double-click instead will get it blocked by Gatekeeper.
