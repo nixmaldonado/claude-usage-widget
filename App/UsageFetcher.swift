@@ -98,10 +98,7 @@ enum UsageAPI {
     static let url = URL(string: "https://api.anthropic.com/api/oauth/usage")!
 
     /// Identifies this app honestly instead of posing as Claude Code.
-    static let userAgent: String = {
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
-        return "ClaudeUsageWidget/\(version) (+https://github.com/nixmaldonado/claude-usage-widget)"
-    }()
+    static let userAgent = "ClaudeUsageWidget/\(AppVersion.short) (+https://github.com/nixmaldonado/claude-usage-widget)"
 
     /// Never follow redirects, so the bearer token can't be re-sent to another host.
     private final class NoRedirects: NSObject, URLSessionTaskDelegate {

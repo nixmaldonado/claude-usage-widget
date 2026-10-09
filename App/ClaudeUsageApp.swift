@@ -10,7 +10,10 @@ import WidgetKit
 enum Launcher {
     static func main() {
         let args = CommandLine.arguments
-        if args.contains("--unregister-login-item") {
+        if args.contains("--version") {
+            print(AppVersion.description)
+            exit(0)
+        } else if args.contains("--unregister-login-item") {
             // Used by uninstall.sh so no stale background item is left behind.
             try? SMAppService.mainApp.unregister()
             exit(0)
@@ -23,6 +26,20 @@ enum Launcher {
         } else {
             ClaudeUsageApp.main()
         }
+    }
+}
+
+/// "Claude Usage 0.1.0 (build 7, abc1234)". The build number and commit come
+/// from the CI run that produced the app, so two builds are easy to tell apart.
+enum AppVersion {
+    static var short: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
+    }
+    static var description: String {
+        let info = Bundle.main.infoDictionary ?? [:]
+        let build = info["CFBundleVersion"] as? String ?? "?"
+        let commit = info["ClaudeUsageCommit"] as? String ?? "dev"
+        return "Claude Usage \(short) (build \(build), \(commit))"
     }
 }
 
@@ -177,6 +194,7 @@ struct MenuContent: View {
         ))
         Button("Hide Menu Bar Icon") { showMenuBarIcon = false }
         Divider()
+        Text(AppVersion.description)
         Button("Quit Claude Usage") { NSApp.terminate(nil) }
             .keyboardShortcut("q")
     }
