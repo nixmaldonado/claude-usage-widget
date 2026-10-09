@@ -1,0 +1,8 @@
+{
+  "checkedAt" : "2026-10-09T01:19:46Z",
+  "limits" : [
+
+  ],
+  "message" : "No Claude Code login found. Run `claude` in Terminal and sign in.",
+  "status" : "signedOut"
+}
