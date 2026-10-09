@@ -20,6 +20,9 @@ jobs:
   build:
     runs-on: macos-15
     timeout-minutes: 20
+    outputs:
+      release: ${{ steps.release.outputs.release }}
+      tag: ${{ steps.release.outputs.tag }}
     env:
       HOMEBREW_NO_AUTO_UPDATE: "1"
       APP: build/Release/ClaudeUsage.app
@@ -27,6 +30,26 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+
+      # A release happens when a v* tag is pushed, or when main carries a
+      # MARKETING_VERSION (project.yml) that has no tag yet. So releasing is:
+      # bump the version, push to main.
+      - name: Decide whether this build is a release
+        id: release
+        run: |
+          version="$(sed -nE 's/^ *MARKETING_VERSION: *"?([0-9][0-9.]*)"?.*/\1/p' project.yml | head -1)"
+          [[ -n "$version" ]] || { echo "MARKETING_VERSION not found"; exit 1; }
+          tag="v$version"
+          release=false
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            tag="$GITHUB_REF_NAME"; release=true
+          elif [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF" == refs/heads/main ]] &&
+               ! git ls-remote --exit-code --tags "https://github.com/$GITHUB_REPOSITORY.git" "refs/tags/$tag" >/dev/null; then
+            release=true
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "release=$release" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag release=$release"
 
       - name: Toolchain
         run: |
@@ -37,11 +60,14 @@ jobs:
         run: xcodegen generate
 
       - name: Build (Release, ad-hoc signed)
+        env:
+          RELEASE: ${{ steps.release.outputs.release }}
+          TAG: ${{ steps.release.outputs.tag }}
         run: |
           set -o pipefail
           version_args=(CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" CLAUDE_USAGE_COMMIT="${GITHUB_SHA::7}")
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            version_args+=(MARKETING_VERSION="${GITHUB_REF_NAME#v}")
+          if [[ "$RELEASE" == true ]]; then
+            version_args+=(MARKETING_VERSION="${TAG#v}")
           fi
           xcodebuild -project ClaudeUsage.xcodeproj -target ClaudeUsage -configuration Release \
             SYMROOT="$PWD/build" CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= \
@@ -132,7 +158,7 @@ jobs:
 
   release:
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: needs.build.outputs.release == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -152,15 +178,18 @@ jobs:
         with:
           subject-path: dist/ClaudeUsage.zip
       - name: Pin install.sh to this release and its checksum
+        env:
+          TAG: ${{ needs.build.outputs.tag }}
         run: |
           sha="$(cut -d' ' -f1 dist/ClaudeUsage.zip.sha256)"
-          sed -e "s/^release_tag=.*/release_tag=\"$GITHUB_REF_NAME\"/" \
+          sed -e "s/^release_tag=.*/release_tag=\"$TAG\"/" \
               -e "s/^expected_sha256=.*/expected_sha256=\"$sha\"/" install.sh > dist/install.sh
           grep -E '^(release_tag|expected_sha256)=' dist/install.sh
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.build.outputs.tag }}
         run: |
-          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
-            --title "$GITHUB_REF_NAME" --generate-notes \
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "Claude Usage ${TAG#v}" --generate-notes \
             dist/ClaudeUsage.zip dist/ClaudeUsage.zip.sha256 dist/install.sh

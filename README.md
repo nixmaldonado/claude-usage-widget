@@ -148,6 +148,9 @@ The Xcode project is generated from `project.yml` with
 [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`). Edit
 `project.yml`, then run `xcodegen generate` or `./build.sh`.
 
+To release, bump `MARKETING_VERSION` in `project.yml` and push to `main`. CI builds
+it, attests it and publishes `vX.Y.Z` with the zip, its checksum and a pinned `install.sh`.
+
 ```
 App/      menu-bar agent: Keychain login, API fetch, parser, login item
 Widget/   WidgetKit extension: timeline + small/medium views
